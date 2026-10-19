@@ -1,8 +1,26 @@
 import React, { useRef, useState, useEffect } from 'react';
-import { weddingData } from '../data/weddingData';
 import { SectionHeader } from './SectionHeader';
 import { useWeddingAudio } from '../context/AudioContext';
-import { Play, Pause, Maximize, RotateCcw, AlertCircle, Film, ExternalLink, CheckCircle, Video } from 'lucide-react';
+import {
+  Play,
+  Pause,
+  Maximize,
+  RotateCcw,
+  AlertCircle,
+  Film,
+  ExternalLink,
+  CheckCircle,
+  Video,
+} from 'lucide-react';
+
+type VideoItem = {
+  id: string;
+  title: string;
+  subtitle: string;
+  badge: string;
+  videoUrl: string;
+  driveId?: string;
+};
 
 export const VideoSection: React.FC = () => {
   const {
@@ -12,22 +30,22 @@ export const VideoSection: React.FC = () => {
     notifyDriveIframeActive,
   } = useWeddingAudio();
 
-  const videoList = weddingData.videos || [
+  const videoList: VideoItem[] = [
     {
       id: 'video-1',
       title: 'సాంప్రదాయ కళ్యాణ వైభోగం',
       subtitle: 'ఇనకోల్లు వారి కళ్యాణ మహోత్సవ ఆహ్వానం',
       badge: 'ఆహ్వానం 1',
-      videoUrl: 'https://drive.google.com/file/d/1oADlRhKE1GLEuUpV1P06Tto2sRS-LIP1/preview',
-      driveId: '1oADlRhKE1GLEuUpV1P06Tto2sRS-LIP1',
+      // Place the file at public/media/invitation_video.mp4
+      videoUrl: '/media/kalyana_vibogam.mp4',
     },
     {
       id: 'video-2',
       title: 'దివ్య మంగళ పెండ్లిపిలుపు',
       subtitle: 'ఇనకోల్లు వారి పెండ్లిపిలుపు (వధువేమో అలమేలు వరుడట శ్రీవారు)',
       badge: 'ఆహ్వానం 2',
-      videoUrl: 'https://drive.google.com/file/d/1VCDvzsbOR229RXxFZ_IvCtbMvC5LdQJM/preview',
-      driveId: '1VCDvzsbOR229RXxFZ_IvCtbMvC5LdQJM',
+      videoUrl:
+        '/media/invitation_video.mp4',
     },
   ];
 
@@ -45,7 +63,7 @@ export const VideoSection: React.FC = () => {
   const [duration, setDuration] = useState<number>(0);
   const [showDriveIframe, setShowDriveIframe] = useState<boolean>(false);
 
-  // Release audio lock on unmount
+  // Release the audio lock and close Drive state when this component unmounts.
   useEffect(() => {
     return () => {
       notifyVideoEndedOrFailed();
@@ -53,19 +71,20 @@ export const VideoSection: React.FC = () => {
     };
   }, [notifyVideoEndedOrFailed, notifyDriveIframeActive]);
 
-  // Switch video tab handler
   const handleSelectVideo = (index: number) => {
     if (index === activeVideoIndex) return;
 
-    if (videoRef.current) {
-      videoRef.current.pause();
-    }
+    videoRef.current?.pause();
     setIsPlaying(false);
     setIsLoading(false);
     setHasError(false);
+    setErrorMessage('');
     setCurrentTime(0);
+    setDuration(0);
+    setShowDriveIframe(false);
+    notifyDriveIframeActive(false);
     setActiveVideoIndex(index);
-    notifyVideoStopped(); // resume song when switching or stopping previous video
+    notifyVideoStopped();
   };
 
   const handlePlayToggle = async () => {
@@ -73,34 +92,37 @@ export const VideoSection: React.FC = () => {
       notifyVideoPlayStarted();
       setIsPlaying(true);
       setHasError(false);
+      setErrorMessage('');
       setShowDriveIframe(true);
       notifyDriveIframeActive(true);
       return;
     }
-    if (!videoRef.current) return;
 
-    if (videoRef.current.paused) {
-      // 1. Immediately pause background song when user plays video
+    const video = videoRef.current;
+    if (!video) return;
+
+    if (video.paused) {
       notifyVideoPlayStarted();
       setIsLoading(true);
+      setHasError(false);
+      setErrorMessage('');
 
       try {
-        await videoRef.current.play();
+        await video.play();
         setIsPlaying(true);
         setIsLoading(false);
-        setHasError(false);
       } catch (err) {
         console.warn('Video playback error:', err);
         setIsLoading(false);
+        setIsPlaying(false);
         setHasError(true);
         setErrorMessage(
-          `వీడియో ఫైల్ లోడ్ కాలేదు. దయచేసి /public${activeVideo.videoUrl} ఫైల్ ఉంచండి లేదా మళ్ళీ ప్రయత్నించండి.`
+          `వీడియో ఫైల్ లోడ్ కాలేదు. public${activeVideo.videoUrl} మార్గంలో ఫైల్ ఉందో లేదో తనిఖీ చేసి మళ్లీ ప్రయత్నించండి.`,
         );
-        notifyVideoStopped(); // resume song on error
+        notifyVideoStopped();
       }
     } else {
-      // 2. When user stops/pauses the video: resume opening song automatically
-      videoRef.current.pause();
+      video.pause();
       setIsPlaying(false);
       notifyVideoStopped();
     }
@@ -108,30 +130,53 @@ export const VideoSection: React.FC = () => {
 
   const handleVideoEnded = () => {
     setIsPlaying(false);
-    // 3. When video is completed: song plays automatically
+    setIsLoading(false);
     notifyVideoEndedOrFailed();
   };
 
   const handleVideoError = () => {
+    // The video element is intentionally not given a Drive URL as its src.
+    // Google Drive videos are shown in the iframe modal instead.
+    if (activeVideo.driveId) return;
+
     setIsLoading(false);
     setIsPlaying(false);
     setHasError(true);
     setErrorMessage(
-      `వీడియో ప్లే చేయడంలో సమస్య తలెత్తింది. దయచేసి /public${activeVideo.videoUrl} ను సరిచూసుకోండి.`
+      `వీడియో ప్లే చేయడంలో సమస్య ఉంది. public${activeVideo.videoUrl} ఫైల్ ఉందో లేదో తనిఖీ చేయండి.`,
     );
     notifyVideoStopped();
   };
 
-  const handleRetry = () => {
+  const handleRetry = async () => {
+    const video = videoRef.current;
+    if (!video) return;
+
     setHasError(false);
-    if (videoRef.current) {
-      videoRef.current.load();
-      handlePlayToggle();
+    setErrorMessage('');
+    setIsLoading(true);
+    video.load();
+    notifyVideoPlayStarted();
+
+    try {
+      await video.play();
+      setIsPlaying(true);
+      setIsLoading(false);
+    } catch (err) {
+      console.warn('Video retry failed:', err);
+      setIsLoading(false);
+      setIsPlaying(false);
+      setHasError(true);
+      setErrorMessage(
+        `వీడియోను మళ్లీ ప్లే చేయలేకపోయాము. public${activeVideo.videoUrl} మార్గంలో ఫైల్ ఉందో లేదో తనిఖీ చేయండి.`,
+      );
+      notifyVideoStopped();
     }
   };
 
   const handleFullscreen = () => {
     if (!containerRef.current) return;
+
     if (!document.fullscreenElement) {
       containerRef.current.requestFullscreen?.().catch(() => {});
     } else {
@@ -140,13 +185,16 @@ export const VideoSection: React.FC = () => {
   };
 
   const handleTimeUpdate = () => {
-    if (videoRef.current) {
-      setCurrentTime(videoRef.current.currentTime);
-      setDuration(videoRef.current.duration || 0);
-    }
+    const video = videoRef.current;
+    if (!video) return;
+
+    setCurrentTime(video.currentTime);
+    setDuration(Number.isFinite(video.duration) ? video.duration : 0);
   };
 
   const openDriveIframeModal = () => {
+    if (!activeVideo.driveId) return;
+
     notifyDriveIframeActive(true);
     setShowDriveIframe(true);
   };
@@ -155,27 +203,31 @@ export const VideoSection: React.FC = () => {
     setShowDriveIframe(false);
     setIsPlaying(false);
     notifyDriveIframeActive(false);
+    notifyVideoEndedOrFailed();
   };
 
-  // Close the Drive player with the Escape key (desktop / Mac)
+  // Close the Drive player with Escape.
   useEffect(() => {
     if (!showDriveIframe) return;
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
         setShowDriveIframe(false);
         setIsPlaying(false);
         notifyDriveIframeActive(false);
+        notifyVideoEndedOrFailed();
       }
     };
+
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [showDriveIframe, notifyDriveIframeActive]);
+  }, [showDriveIframe, notifyDriveIframeActive, notifyVideoEndedOrFailed]);
 
   const formatVideoTime = (secs: number) => {
-    if (isNaN(secs)) return '0:00';
-    const m = Math.floor(secs / 60);
-    const s = Math.floor(secs % 60);
-    return `${m}:${s < 10 ? '0' : ''}${s}`;
+    if (!Number.isFinite(secs) || secs < 0) return '0:00';
+    const minutes = Math.floor(secs / 60);
+    const seconds = Math.floor(secs % 60);
+    return `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
   };
 
   return (
@@ -187,21 +239,23 @@ export const VideoSection: React.FC = () => {
           subtitle="మా జీవితంలోని ఈ మధుర క్షణాల రెండు అందమైన ఆహ్వాన వీడియోలు"
         />
 
-        {/* Video Selector Tabs: Supporting Both Videos */}
+        {/* Video selector tabs */}
         <div className="flex items-center justify-center gap-2 sm:gap-4 mb-6">
-          {videoList.map((vid, idx) => {
-            const isSelected = activeVideoIndex === idx;
+          {videoList.map((vid, index) => {
+            const isSelected = activeVideoIndex === index;
 
             return (
               <button
                 key={vid.id}
-                onClick={() => handleSelectVideo(idx)}
+                type="button"
+                onClick={() => handleSelectVideo(index)}
                 className={`flex items-center gap-2 px-4 sm:px-6 py-2.5 rounded-full font-telugu text-xs sm:text-sm font-semibold transition-all duration-300 cursor-pointer ${
                   isSelected
                     ? 'bg-gradient-to-r from-[#dfb86c] to-[#f5d68b] text-[#26050c] shadow-[0_0_15px_rgba(201,162,75,0.6)] scale-105'
                     : 'bg-[#26050c]/80 text-[#dfb86c] border border-[#c9a24b]/40 hover:bg-[#3b0a14]'
                 }`}
                 aria-selected={isSelected}
+                role="tab"
               >
                 <Video className="w-4 h-4" />
                 <span>{vid.title}</span>
@@ -210,12 +264,11 @@ export const VideoSection: React.FC = () => {
           })}
         </div>
 
-        {/* Video Player Card */}
+        {/* Video player card */}
         <div
           ref={containerRef}
           className="royal-card rounded-2xl p-3 sm:p-5 relative overflow-hidden shadow-2xl border border-[#c9a24b]/50"
         >
-          {/* Active Video Header Info */}
           <div className="flex items-center justify-between pb-3 px-1 border-b border-[#c9a24b]/20 mb-3">
             <div>
               <span className="text-xs font-cinzel text-[#dfb86c] block">
@@ -230,7 +283,6 @@ export const VideoSection: React.FC = () => {
             </span>
           </div>
 
-          {/* Main Video Viewport */}
           <div className="relative aspect-video w-full rounded-xl overflow-hidden bg-black flex items-center justify-center">
             <video
               key={activeVideo.videoUrl}
@@ -247,13 +299,22 @@ export const VideoSection: React.FC = () => {
                 setIsLoading(false);
                 setIsPlaying(true);
               }}
+              onPause={() => setIsPlaying(false)}
             />
 
-            {/* Poster / Play Overlay when video is not playing */}
             {!isPlaying && !isLoading && !hasError && (
               <div
                 className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-black/60 flex flex-col items-center justify-center cursor-pointer group"
                 onClick={handlePlayToggle}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    void handlePlayToggle();
+                  }
+                }}
+                aria-label={`${activeVideo.title} వీడియో ప్లే చేయండి`}
               >
                 <div className="w-18 h-18 sm:w-20 sm:h-20 rounded-full bg-gradient-to-tr from-[#dfb86c] to-[#f5d68b] p-0.5 shadow-[0_0_25px_rgba(201,162,75,0.7)] group-hover:scale-110 active:scale-95 transition-transform duration-300 flex items-center justify-center">
                   <div className="w-full h-full rounded-full bg-[#3b0a14] flex items-center justify-center">
@@ -263,13 +324,12 @@ export const VideoSection: React.FC = () => {
                 <p className="text-sm sm:text-base font-bold font-telugu text-[#fef08a] mt-4">
                   {activeVideo.title} చూడండి
                 </p>
-                <span className="text-xs text-[#dfb86c]/80 font-telugu mt-1">
+                <span className="text-xs text-[#dfb86c]/80 font-telugu mt-1 text-center px-3">
                   (వీడియో ప్లే అయినప్పుడు నేపథ్య సంగీతం ఆగుతుంది; ఆపినప్పుడు తిరిగి ప్రారంభమవుతుంది)
                 </span>
               </div>
             )}
 
-            {/* Loading Spinner */}
             {isLoading && (
               <div className="absolute inset-0 bg-black/60 flex flex-col items-center justify-center z-20">
                 <div className="w-12 h-12 border-3 border-[#c9a24b]/30 border-t-[#fef08a] rounded-full animate-spin mb-3" />
@@ -277,7 +337,6 @@ export const VideoSection: React.FC = () => {
               </div>
             )}
 
-            {/* Error Message with Retry & Drive Iframe option */}
             {hasError && (
               <div className="absolute inset-0 bg-black/90 p-6 flex flex-col items-center justify-center text-center z-30">
                 <AlertCircle className="w-12 h-12 text-[#f59e0b] mb-3" />
@@ -290,6 +349,7 @@ export const VideoSection: React.FC = () => {
 
                 <div className="flex flex-wrap items-center justify-center gap-3">
                   <button
+                    type="button"
                     onClick={handleRetry}
                     className="flex items-center gap-2 px-4 py-2 rounded-full bg-[#dfb86c] text-[#26050c] font-telugu font-semibold text-xs sm:text-sm hover:bg-[#f5d68b] transition-colors cursor-pointer"
                   >
@@ -297,27 +357,34 @@ export const VideoSection: React.FC = () => {
                     <span>మళ్ళీ ప్రయత్నించండి</span>
                   </button>
 
-                  <button
-                    onClick={openDriveIframeModal}
-                    className="flex items-center gap-2 px-4 py-2 rounded-full bg-[#3b0a14] border border-[#c9a24b] text-[#dfb86c] font-telugu text-xs sm:text-sm hover:bg-[#6b1224] transition-colors cursor-pointer"
-                  >
-                    <ExternalLink className="w-4 h-4" />
-                    <span>Drive ప్లేయర్ ద్వారా చూడండి</span>
-                  </button>
+                  {activeVideo.driveId && (
+                    <button
+                      type="button"
+                      onClick={openDriveIframeModal}
+                      className="flex items-center gap-2 px-4 py-2 rounded-full bg-[#3b0a14] border border-[#c9a24b] text-[#dfb86c] font-telugu text-xs sm:text-sm hover:bg-[#6b1224] transition-colors cursor-pointer"
+                    >
+                      <ExternalLink className="w-4 h-4" />
+                      <span>Drive ప్లేయర్ ద్వారా చూడండి</span>
+                    </button>
+                  )}
                 </div>
               </div>
             )}
           </div>
 
-          {/* Custom Controls Bar */}
           <div className="mt-3 flex items-center justify-between gap-3 px-2">
             <div className="flex items-center gap-3">
               <button
+                type="button"
                 onClick={handlePlayToggle}
                 className="w-10 h-10 rounded-full bg-[#3b0a14] border border-[#c9a24b]/50 text-[#dfb86c] hover:text-[#fef08a] flex items-center justify-center transition-colors focus:outline-none cursor-pointer"
                 aria-label={isPlaying ? 'పాజ్ చేయండి' : 'ప్లే చేయండి'}
               >
-                {isPlaying ? <Pause className="w-4 h-4 fill-current" /> : <Play className="w-4 h-4 fill-current ml-0.5" />}
+                {isPlaying ? (
+                  <Pause className="w-4 h-4 fill-current" />
+                ) : (
+                  <Play className="w-4 h-4 fill-current ml-0.5" />
+                )}
               </button>
 
               <span className="text-xs font-cinzel text-[#dfb86c]">
@@ -325,40 +392,36 @@ export const VideoSection: React.FC = () => {
               </span>
             </div>
 
-            <div className="flex items-center gap-3">
-              <button
-                onClick={handleFullscreen}
-                className="w-10 h-10 rounded-full bg-[#3b0a14] border border-[#c9a24b]/50 text-[#dfb86c] hover:text-[#fef08a] flex items-center justify-center transition-colors focus:outline-none cursor-pointer"
-                aria-label="పూర్తి స్క్రీన్‌లో చూడండి"
-              >
-                <Maximize className="w-4 h-4" />
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={handleFullscreen}
+              className="w-10 h-10 rounded-full bg-[#3b0a14] border border-[#c9a24b]/50 text-[#dfb86c] hover:text-[#fef08a] flex items-center justify-center transition-colors focus:outline-none cursor-pointer"
+              aria-label="పూర్తి స్క్రీన్‌లో చూడండి"
+            >
+              <Maximize className="w-4 h-4" />
+            </button>
           </div>
         </div>
 
-        {/* Google Drive Iframe Fallback Modal */}
-        {showDriveIframe && (
-          // No backdrop-blur here on purpose: a blurred full-screen layer above an
-          // iframe makes Android Chrome (esp. in "Desktop site" mode) stop painting
-          // / pause the embedded video. A solid dark overlay is rock solid.
+        {/* Google Drive iframe fallback modal */}
+        {showDriveIframe && activeVideo.driveId && (
           <div
             className="fixed inset-0 z-50 bg-black/95 overflow-y-auto overscroll-contain"
             style={{ minHeight: '100dvh' }}
             role="dialog"
             aria-modal="true"
+            aria-label={`Google Drive వీడియో ఆహ్వానం: ${activeVideo.title}`}
           >
             <div className="min-h-full flex flex-col items-center justify-center p-3 sm:p-4">
-            <div className="relative w-full max-w-3xl royal-card rounded-2xl p-4 sm:p-6 flex flex-col items-center">
-              <h4 className="text-lg font-bold font-telugu text-[#fef08a] mb-2">
-                Google Drive వీడియో ఆహ్వానం ({activeVideo.title})
-              </h4>
-              <p className="text-xs text-[#dfb86c]/90 font-telugu mb-4 text-center">
-                వీడియో వీక్షించిన తర్వాత క్రింది బటన్ నొక్కండి; అప్పుడు నేపథ్య సంగీతం తిరిగి ప్రారంభమవుతుంది.
-              </p>
+              <div className="relative w-full max-w-3xl royal-card rounded-2xl p-4 sm:p-6 flex flex-col items-center">
+                <h4 className="text-lg font-bold font-telugu text-[#fef08a] mb-2">
+                  Google Drive వీడియో ఆహ్వానం ({activeVideo.title})
+                </h4>
+                <p className="text-xs text-[#dfb86c]/90 font-telugu mb-4 text-center">
+                  వీడియో వీక్షించిన తర్వాత క్రింది బటన్ నొక్కండి; అప్పుడు నేపథ్య సంగీతం తిరిగి ప్రారంభమవుతుంది.
+                </p>
 
-              <div className="w-full aspect-video rounded-xl overflow-hidden bg-black mb-4">
-                {activeVideo.driveId ? (
+                <div className="w-full aspect-video rounded-xl overflow-hidden bg-black mb-4">
                   <iframe
                     key={activeVideo.driveId}
                     src={`https://drive.google.com/file/d/${activeVideo.driveId}/preview`}
@@ -369,30 +432,18 @@ export const VideoSection: React.FC = () => {
                     loading="eager"
                     title={activeVideo.title}
                   />
-                ) : (
-                  <div className="w-full h-full flex flex-col items-center justify-center text-center p-6">
-                    <Film className="w-12 h-12 text-[#dfb86c] mb-2" />
-                    <p className="text-sm font-telugu text-[#fbf3e0]">
-                      Drive ID ఇంకా జోడించబడలేదు. /public{activeVideo.videoUrl} లో వీడియో ఉంచడం శ్రేయస్కరం.
-                    </p>
-                  </div>
-                )}
-              </div>
+                </div>
 
-              <div className="flex flex-wrap items-center justify-center gap-3">
-                {/* Required Completion Button */}
-                <button
-                  onClick={closeDriveIframeModal}
-                  className="flex items-center gap-2 px-6 py-3 rounded-full bg-gradient-to-r from-[#dfb86c] to-[#f5d68b] text-[#26050c] font-telugu font-bold text-sm sm:text-base shadow-lg hover:brightness-110 cursor-pointer"
-                >
-                  <CheckCircle className="w-5 h-5 text-[#26050c]" />
-                  <span>వీడియో చూడటం పూర్తయింది</span>
-                </button>
+                <div className="flex flex-wrap items-center justify-center gap-3">
+                  <button
+                    type="button"
+                    onClick={closeDriveIframeModal}
+                    className="flex items-center gap-2 px-6 py-3 rounded-full bg-gradient-to-r from-[#dfb86c] to-[#f5d68b] text-[#26050c] font-telugu font-bold text-sm sm:text-base shadow-lg hover:brightness-110 cursor-pointer"
+                  >
+                    <CheckCircle className="w-5 h-5 text-[#26050c]" />
+                    <span>వీడియో చూడటం పూర్తయింది</span>
+                  </button>
 
-                {/* Fallback: open the video directly in Google Drive (new tab / Drive app).
-                    Works on every phone, tablet and Mac even if the embedded player
-                    refuses to play (e.g. third-party cookies blocked). */}
-                {activeVideo.driveId && (
                   <a
                     href={`https://drive.google.com/file/d/${activeVideo.driveId}/view`}
                     target="_blank"
@@ -402,9 +453,8 @@ export const VideoSection: React.FC = () => {
                     <ExternalLink className="w-4 h-4" />
                     <span>Drive లో తెరవండి</span>
                   </a>
-                )}
+                </div>
               </div>
-            </div>
             </div>
           </div>
         )}
